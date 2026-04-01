@@ -12,6 +12,7 @@ class ParkingReceiptScreen extends StatefulWidget {
 
 class _ParkingReceiptScreenState extends State<ParkingReceiptScreen> {
   ReceiptController? controller;
+  bool _permissionsGranted = false;
 
   final String carNumber = "ABC-1234";
   final String location = "Parking";
@@ -21,8 +22,13 @@ class _ParkingReceiptScreenState extends State<ParkingReceiptScreen> {
   final double price = 25.0;
 
   @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    requestPermissions(context);
     return Scaffold(
       appBar: AppBar(title: const Text("Parking Receipt")),
       body: SingleChildScrollView(
@@ -44,33 +50,26 @@ class _ParkingReceiptScreenState extends State<ParkingReceiptScreen> {
                       ),
                     ),
                     const Divider(),
-            
                     _row("Car Number", carNumber),
                     _row("Location", location),
                     _row("Date", date),
                     _row("Time In", timeIn),
                     _row("Time Out", timeOut),
-            
                     const SizedBox(height: 10),
                     const Divider(),
-            
                     _row("Total Price", "$price EGP", isBold: true),
-            
                     const SizedBox(height: 20),
-            
                     // QR Code
                     QrImageView(
                       data: "$carNumber|$date|$price",
                       size: 120,
                     ),
-            
                     const SizedBox(height: 10),
                     const Text("Scan for details"),
                   ],
                 ),
               ),
             ),
-        
             // زر الطباعة
             Padding(
               padding: const EdgeInsets.all(12),
@@ -104,38 +103,95 @@ class _ParkingReceiptScreenState extends State<ParkingReceiptScreen> {
   }
 
   Future<void> _print() async {
-  final device = await FlutterBluetoothPrinter.selectDevice(context);
+    // ✅ التحقق من الصلاحيات قبل الطباعة
+    if (!_permissionsGranted) {
+      bool hasPermissions = await _checkPermissions();
+      if (!hasPermissions) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("❌ الرجاء منح صلاحيات البلوتوث أولاً"),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        return;
+      }
+      _permissionsGranted = true;
+    }
 
-  if (device != null) {
-    // سناك بار للتأكيد
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Connected to ${device.name}")),
-    );
+    if (!mounted) return;
+    final device = await FlutterBluetoothPrinter.selectDevice(context);
 
-    // الطباعة مباشرة بعد الاختيار
-    await controller?.print(address: device.address);
+    if (device != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("✅ متصل بـ: ${device.name}"),
+          backgroundColor: Colors.green,
+        ),
+      );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Printing started...")),
-    );
-  } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("No printer selected")),
-    );
+      await controller?.print(address: device.address);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("🖨️ جاري الطباعة..."),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("❌ لم يتم اختيار طابعة"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
-}
-}
 
-Future<void> requestPermissions(context) async {
-  var status = await [
-    Permission.bluetoothScan,
-    Permission.bluetoothConnect,
-    Permission.location,
-  ].request();
+  /// ✅ دالة للتحقق من الصلاحيات الحالية
+  Future<bool> _checkPermissions() async {
+    final bluetoothScan = await Permission.bluetoothScan.status;
+    final bluetoothConnect = await Permission.bluetoothConnect.status;
+    final location = await Permission.location.status;
 
-  if (status.values.any((s) => !s.isGranted)) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Bluetooth permission denied ❌")),
-    );
+    return bluetoothScan.isGranted &&
+        bluetoothConnect.isGranted &&
+        location.isGranted;
+  }
+
+  /// ✅ دالة طلب الصلاحيات - تُستدعى مرة واحدة فقط في initState
+  Future<void> _requestPermissions() async {
+    final statuses = await [
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.location,
+    ].request();
+
+    if (!mounted) return;
+
+    bool allGranted = statuses.values.every((status) => status.isGranted);
+    
+    if (allGranted) {
+      _permissionsGranted = true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("✅ تم منح جميع الصلاحيات"),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("⚠️ تم رفض بعض الصلاحيات - قد لا تتمكن من الطباعة"),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 }
