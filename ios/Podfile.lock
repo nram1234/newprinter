@@ -1,0 +1,47 @@
+PODS:
+  - bluetooth_print_plus (2.4.6):
+    - Flutter
+    - GSDK (= 0.0.7)
+  - easy_blue_printer (1.0.0):
+    - Flutter
+  - Flutter (1.0.0)
+  - flutter_bluetooth_printer (2.0.0):
+    - Flutter
+  - GSDK (0.0.7)
+  - permission_handler_apple (9.3.0):
+    - Flutter
+
+DEPENDENCIES:
+  - bluetooth_print_plus (from `.symlinks/plugins/bluetooth_print_plus/ios`)
+  - easy_blue_printer (from `.symlinks/plugins/easy_blue_printer/ios`)
+  - Flutter (from `Flutter`)
+  - flutter_bluetooth_printer (from `.symlinks/plugins/flutter_bluetooth_printer/ios`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+
+SPEC REPOS:
+  trunk:
+    - GSDK
+
+EXTERNAL SOURCES:
+  bluetooth_print_plus:
+    :path: ".symlinks/plugins/bluetooth_print_plus/ios"
+  easy_blue_printer:
+    :path: ".symlinks/plugins/easy_blue_printer/ios"
+  Flutter:
+    :path: Flutter
+  flutter_bluetooth_printer:
+    :path: ".symlinks/plugins/flutter_bluetooth_printer/ios"
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
+
+SPEC CHECKSUMS:
+  bluetooth_print_plus: 7fa236314a361796569ed4ebc65d159b00a2686a
+  easy_blue_printer: 71193bdafae78dd9b1ce07ab951bca66b5a7d5d8
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  flutter_bluetooth_printer: 1b8389f49b4e978f840226ddd3166b17c7f74b75
+  GSDK: 65d54603da7bece31b433c0f34f8a52c4431dd08
+  permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
+
+PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+
+COCOAPODS: 1.16.2

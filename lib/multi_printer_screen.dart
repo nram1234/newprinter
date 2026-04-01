@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:newprinter/package_1_print_bluetooth_thermal.dart';
+import 'package:newprinter/package_3_bluetooth_print_plus.dart';
 
  import 'bbixolon_screen.dart';
 import 'flutter_bt_print.dart';
@@ -11,10 +13,10 @@ class HomeScreen extends StatelessWidget {
       body: ListView(
         padding: EdgeInsets.all(16),
         children: [
-          _btn(context, "bt_print", ParkingInvoiceScreen()),
-     _btn(context, "flutter_receipt_printer", ParkingReceiptScreen()),
+          _btn(context, "1", ParkingInvoiceScreen()),
+     _btn(context, "2", ParkingReceiptScreen()),
 
-     //     _btn(context, "flutter_bt_print", BtPrintScreen()),
+     _btn(context, "3", PrinterScreen()),
    //       _btn(context, "blue_thermal_plus", BlueThermalScreen()),
      //     _btn(context, "bixolon_printer", BixolonScreen()),
         ],

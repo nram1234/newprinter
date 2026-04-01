@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_printer/flutter_bluetooth_printer.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 class ParkingReceiptScreen extends StatefulWidget {
@@ -12,9 +13,8 @@ class ParkingReceiptScreen extends StatefulWidget {
 class _ParkingReceiptScreenState extends State<ParkingReceiptScreen> {
   ReceiptController? controller;
 
-  // بيانات وهمية
   final String carNumber = "ABC-1234";
-  final String location = "Nasr City Parking";
+  final String location = "Parking";
   final String date = "2026-03-31";
   final String timeIn = "10:00 AM";
   final String timeOut = "12:30 PM";
@@ -22,12 +22,13 @@ class _ParkingReceiptScreenState extends State<ParkingReceiptScreen> {
 
   @override
   Widget build(BuildContext context) {
+    requestPermissions(context);
     return Scaffold(
       appBar: AppBar(title: const Text("Parking Receipt")),
-      body: Column(
-        children: [
-          Expanded(
-            child: Receipt(
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            Receipt(
               onInitialized: (c) => controller = c,
               builder: (context) => Container(
                 padding: const EdgeInsets.all(16),
@@ -43,43 +44,43 @@ class _ParkingReceiptScreenState extends State<ParkingReceiptScreen> {
                       ),
                     ),
                     const Divider(),
-
+            
                     _row("Car Number", carNumber),
                     _row("Location", location),
                     _row("Date", date),
                     _row("Time In", timeIn),
                     _row("Time Out", timeOut),
-
+            
                     const SizedBox(height: 10),
                     const Divider(),
-
+            
                     _row("Total Price", "$price EGP", isBold: true),
-
+            
                     const SizedBox(height: 20),
-
+            
                     // QR Code
                     QrImageView(
                       data: "$carNumber|$date|$price",
                       size: 120,
                     ),
-
+            
                     const SizedBox(height: 10),
                     const Text("Scan for details"),
                   ],
                 ),
               ),
             ),
-          ),
-
-          // زر الطباعة
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: ElevatedButton(
-              onPressed: _print,
-              child: const Text("Print Receipt"),
-            ),
-          )
-        ],
+        
+            // زر الطباعة
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: ElevatedButton(
+                onPressed: _print,
+                child: const Text("Print Receipt"),
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
@@ -103,10 +104,38 @@ class _ParkingReceiptScreenState extends State<ParkingReceiptScreen> {
   }
 
   Future<void> _print() async {
-    final device = await FlutterBluetoothPrinter.selectDevice(context);
+  final device = await FlutterBluetoothPrinter.selectDevice(context);
 
-    if (device != null) {
-      await controller?.print(address: device.address);
-    }
+  if (device != null) {
+    // سناك بار للتأكيد
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Connected to ${device.name}")),
+    );
+
+    // الطباعة مباشرة بعد الاختيار
+    await controller?.print(address: device.address);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Printing started...")),
+    );
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("No printer selected")),
+    );
+  }
+}
+}
+
+Future<void> requestPermissions(context) async {
+  var status = await [
+    Permission.bluetoothScan,
+    Permission.bluetoothConnect,
+    Permission.location,
+  ].request();
+
+  if (status.values.any((s) => !s.isGranted)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Bluetooth permission denied ❌")),
+    );
   }
 }
