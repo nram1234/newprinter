@@ -1,0 +1,1014 @@
+
+// import 'dart:async';
+// import 'dart:collection';
+// import 'dart:typed_data';
+// import 'dart:ui' as ui;
+// import 'package:easy_blue_printer/easy_blue_printer.dart';
+// import 'package:flutter/material.dart';
+// import 'package:flutter/rendering.dart';
+// import 'package:image/image.dart' as img;
+// import 'package:permission_handler/permission_handler.dart';
+// import 'package:qr_flutter/qr_flutter.dart';
+// import 'package:shared_preferences/shared_preferences.dart';
+// import 'package:wvpemployeeapp/core/printer/ticket_print_widget.dart';
+//
+// class PrintService {
+//   static final PrintService _instance = PrintService._internal();
+//   factory PrintService() => _instance;
+//   PrintService._internal();
+//
+//   final printer = EasyBluePrinter.instance;
+//
+//   List<BluetoothDevice> devices = [];
+//   BluetoothDevice? _cachedDevice;
+//   static const String savedPrinterKey = "saved_printer";
+//
+//   final Queue<Future<void> Function()> _printQueue = Queue();
+//   bool _isPrinting = false;
+//
+//   // ==============================
+//   // 🔐 Permissions
+//   // ==============================
+//   Future<bool> requestPermissions({BuildContext? context}) async {
+//     final statuses = await [
+//       Permission.bluetoothScan,
+//       Permission.bluetoothConnect,
+//       Permission.location,
+//     ].request();
+//
+//     return statuses.values.every((status) => status.isGranted);
+//   }
+//
+//   // ==============================
+//   // 💾 Save / Load Printer
+//   // ==============================
+//   Future<void> savePrinter(String address) async {
+//     final prefs = await SharedPreferences.getInstance();
+//     await prefs.setString(savedPrinterKey, address);
+//   }
+//
+//   Future<String?> getSavedPrinter() async {
+//     final prefs = await SharedPreferences.getInstance();
+//     return prefs.getString(savedPrinterKey);
+//   }
+//
+//   // ==============================
+//   // 📡 Devices
+//   // ==============================
+//   Future<List<BluetoothDevice>> getDevices() async {
+//     devices = await printer.getPairedDevices();
+//     return devices;
+//   }
+//
+//   // ==============================
+//   // 🔌 Connect
+//   // ==============================
+//   Future<bool> connect(BluetoothDevice device) async {
+//     await printer.disconnectFromDevice();
+//     return await printer.connectToDevice(device);
+//   }
+//
+//   // ==============================
+//   // 🧠 Smart Connect
+//   // ==============================
+//   Future<bool> _smartConnect() async {
+//     if (_cachedDevice != null) {
+//       try {
+//         if (await printer.isConnected()) return true;
+//       } catch (_) {}
+//     }
+//
+//     final savedAddress = await getSavedPrinter();
+//     if (savedAddress != null) {
+//       devices = await getDevices();
+//       try {
+//         final device = devices.firstWhere((d) => d.address == savedAddress);
+//         bool connected = await connect(device);
+//         if (connected) {
+//           _cachedDevice = device;
+//           return true;
+//         }
+//       } catch (_) {}
+//     }
+//
+//     return false;
+//   }
+//
+//   // ==============================
+//   // 🧠 Queue
+//   // ==============================
+//   Future<void> _enqueuePrint(Future<void> Function() task) async {
+//     _printQueue.add(task);
+//     if (_isPrinting) return;
+//
+//     _isPrinting = true;
+//     while (_printQueue.isNotEmpty) {
+//       final currentTask = _printQueue.removeFirst();
+//       try {
+//         await currentTask();
+//       } catch (_) {}
+//     }
+//     _isPrinting = false;
+//   }
+//
+//   // ==============================
+//   // 🧠 Smart Print
+//   // ==============================
+//   Future<bool> _smartPrint(Future<void> Function() printFunction) async {
+//     bool connected = await _smartConnect();
+//     if (!connected) return false;
+//
+//     try {
+//       await printFunction();
+//       await printer.printEmptyLine(callTimes: 3);
+//       return true;
+//     } catch (_) {
+//       _cachedDevice = null;
+//       return false;
+//     }
+//   }
+//
+//   // ==============================
+//   // 🧾 Print Text
+//   // ==============================
+//   Future<void> printText(
+//       String text, {
+//         bool bold = false,
+//         TA align = TA.left,
+//         FS size = FS.medium,
+//         int copies = 1,
+//       }) async {
+//     await _enqueuePrint(() async {
+//       for (int i = 0; i < copies; i++) {
+//         await _smartPrint(() async {
+//           await printer.printData(
+//             data: text,
+//             bold: bold,
+//             textAlign: align,
+//             fontSize: size,
+//           );
+//         });
+//       }
+//     });
+//   }
+//
+//   // ==============================
+//   // 🖼️ Optimize Image
+//   // ==============================
+//   Future<Uint8List> _optimizeImage(Uint8List bytes) async {
+//     try {
+//       // decode
+//       final image = img.decodeImage(bytes);
+//       if (image == null) return bytes;
+//
+//       // grayscale
+//       final gray = img.grayscale(image);
+//
+//       // threshold (🔥 مهم جدًا)
+//       final bw = img.threshold(gray, threshold: 150);
+//
+//       // resize حسب عرض الطابعة
+//       final resized = img.copyResize(bw, width: 384);
+//
+//       // encode PNG بدل raw
+//       return Uint8List.fromList(img.encodePng(resized));
+//     } catch (_) {
+//       return bytes;
+//     }
+//   }
+//
+//   // ==============================
+//   // 🖼️ Print Image
+//   // ==============================
+//   Future<void> printImage(
+//       Uint8List bytes, {
+//         int copies = 1,
+//       }) async {
+//     await _enqueuePrint(() async {
+//       final optimized = await _optimizeImage(bytes);
+//
+//       for (int i = 0; i < copies; i++) {
+//         await _smartPrint(() async {
+//           await printer.printImage(
+//             bytes: optimized,
+//             textAlign: TA.center,
+//           );
+//         });
+//       }
+//     });
+//   }
+//
+//   // ==============================
+//   // 🧾 QR
+//   // ==============================
+//   Future<Uint8List> generateQr(String data) async {
+//     final qrPainter = QrPainter(
+//       data: data,
+//       version: QrVersions.auto,
+//       gapless: true,
+//     );
+//     final image = await qrPainter.toImage(250);
+//     final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+//     return byteData!.buffer.asUint8List();
+//   }
+//
+//   // ==============================
+//   // 🖼️ Print Widget
+//   // ==============================
+//   Future<bool> printWidget(
+//       GlobalKey key, {
+//         int copies = 1,
+//       }) async {
+//     final boundary =
+//     key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+//     if (boundary == null) return false;
+//
+//     final image = await boundary.toImage(pixelRatio:1);
+//     final byteData =
+//     await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+//     if (byteData == null) return false;
+//
+//     final bytes = byteData.buffer.asUint8List();
+//
+//     for (int i = 0; i < copies; i++) {
+//       bool result = await _smartPrint(() async {
+//         await printImage(bytes);
+//       });
+//       if (!result) return false;
+//     }
+//     return true;
+//   }
+//   Future<bool> executePrintWithSelection(
+//       Future<void> Function() printFunction, {
+//         required BuildContext context,
+//       }) async {
+//
+//     // ✅ 1. حاول تستخدم الطابعة المحفوظة
+//     final savedAddress = await getSavedPrinter();
+//
+//     if (savedAddress != null) {
+//       devices = await getDevices();
+//
+//       try {
+//         final device = devices.firstWhere((d) => d.address == savedAddress);
+//
+//         bool connected = await connect(device);
+//         if (connected) {
+//           _cachedDevice = device;
+//
+//           try {
+//             await printFunction();
+//             await printer.printEmptyLine(callTimes: 3);
+//             _showSnackBar(context, "Printed using saved printer ✅");
+//             return true;
+//           } catch (_) {
+//             _showSnackBar(context, "Print failed, retrying... ❌");
+//           }
+//         }
+//       } catch (_) {
+//         // الطابعة مش موجودة في الأجهزة
+//       }
+//     }
+//
+//     // ❌ 2. لو فشل → افتح اختيار طابعة
+//     devices = await getDevices();
+//
+//     if (devices.isEmpty) {
+//       _showSnackBar(context, "No printers available ❌");
+//       return false;
+//     }
+//
+//     BluetoothDevice? selectedDevice = await showDialog<BluetoothDevice>(
+//       context: context,
+//       builder: (dialogContext) {
+//         return AlertDialog(
+//           title: const Text('Select Printer'),
+//           content: SizedBox(
+//             width: 300,
+//             child: ListView.builder(
+//               shrinkWrap: true,
+//               itemCount: devices.length,
+//               itemBuilder: (_, index) {
+//                 final d = devices[index];
+//                 return ListTile(
+//                   leading: const Icon(Icons.print),
+//                   title: Text(d.name),
+//                   subtitle: Text(d.address),
+//                   onTap: () => Navigator.pop(dialogContext, d),
+//                 );
+//               },
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//
+//     if (selectedDevice == null) return false;
+//
+//     bool connected = await connect(selectedDevice);
+//     if (!connected) return false;
+//
+//     // ✅ احفظ الطابعة الجديدة
+//     _cachedDevice = selectedDevice;
+//     await savePrinter(selectedDevice.address);
+//
+//     try {
+//       await printFunction();
+//       await printer.printEmptyLine(callTimes: 3);
+//       _showSnackBar(context, "Print completed ✅");
+//       return true;
+//     } catch (_) {
+//       _showSnackBar(context, "Print failed ❌");
+//       return false;
+//     }
+//   }
+//   // ==============================
+//   // 🖼️ Render Widget → Image
+//   // ==============================
+//   // Future<Uint8List> renderWidgetToImage(Widget widget) async {
+//   //
+//   //   final repaintBoundary = RenderRepaintBoundary();
+//   //
+//   //   final renderView = RenderView(
+//   //     view: WidgetsBinding.instance.platformDispatcher.views.first,
+//   //     child: RenderPositionedBox(
+//   //       alignment: Alignment.center,
+//   //       child: repaintBoundary,
+//   //     ),
+//   //     configuration: const ViewConfiguration(
+//   //       devicePixelRatio: 1,
+//   //       physicalConstraints: BoxConstraints(maxWidth: 384, maxHeight: 1200),
+//   //       logicalConstraints: BoxConstraints(maxWidth: 384, maxHeight: 1200),
+//   //     ),
+//   //   );
+//   //
+//   //   final pipelineOwner = PipelineOwner();
+//   //   final buildOwner = BuildOwner(focusManager: FocusManager());
+//   //
+//   //   pipelineOwner.rootNode = renderView;
+//   //   renderView.prepareInitialFrame();
+//   //
+//   //   final rootElement = RenderObjectToWidgetAdapter<RenderBox>(
+//   //     container: repaintBoundary,
+//   //     child: ColoredBox(color: Colors.white, child: widget),
+//   //   ).attachToRenderTree(buildOwner);
+//   //
+//   //   buildOwner.buildScope(rootElement);
+//   //   buildOwner.finalizeTree();
+//   //
+//   //   pipelineOwner.flushLayout();
+//   //   pipelineOwner.flushCompositingBits();
+//   //   pipelineOwner.flushPaint();
+//   //
+//   //   final image = await repaintBoundary.toImage(pixelRatio:1);
+//   //   final byteData =
+//   //   await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+//   //
+//   //   return byteData!.buffer.asUint8List();
+//   // }
+//
+//
+//   Future<Uint8List> renderWidgetToImage(Widget widget) async {
+//     final repaintBoundary = RenderRepaintBoundary();
+//
+//     final renderView = RenderView(
+//       view: WidgetsBinding.instance.platformDispatcher.views.first,
+//       child: RenderPositionedBox(
+//         alignment: Alignment.topCenter,
+//         child: repaintBoundary,
+//       ),
+//       configuration: const ViewConfiguration(
+//         devicePixelRatio: 1.0,
+//         physicalConstraints: BoxConstraints(maxWidth: 384, maxHeight: 1200),
+//         logicalConstraints: BoxConstraints(maxWidth: 384, maxHeight: 1200),
+//       ),
+//     );
+//
+//     final pipelineOwner = PipelineOwner();
+//     final buildOwner = BuildOwner(focusManager: FocusManager());
+//
+//     pipelineOwner.rootNode = renderView;
+//     renderView.prepareInitialFrame();
+//
+//     final rootElement = RenderObjectToWidgetAdapter<RenderBox>(
+//       container: repaintBoundary,
+//       child: ColoredBox(color: const Color(0xFFFFFFFF), child: widget),
+//     ).attachToRenderTree(buildOwner);
+//
+//     buildOwner.buildScope(rootElement);
+//     buildOwner.finalizeTree();
+//
+//     pipelineOwner.flushLayout();
+//     pipelineOwner.flushCompositingBits();
+//     pipelineOwner.flushPaint();
+//
+//     final uiImage = await repaintBoundary.toImage(pixelRatio: 1.0);
+//
+//     final byteData =
+//     await uiImage.toByteData(format: ui.ImageByteFormat.rawRgba);
+//
+//     final rawBytes = byteData!.buffer.asUint8List();
+//
+//     // 🔥 تحويل إلى image package
+//     final image = img.Image.fromBytes(
+//       width: uiImage.width,
+//       height: uiImage.height,
+//       bytes:  rawBytes.buffer,
+//       order: img.ChannelOrder.rgba,//img.ChannelOrder.bgra     لوفي مشكله
+//     );
+//
+//     // ✅ 1. تحويل إلى Grayscale
+//     final gray = img.grayscale(image);
+//
+//     // ✅ 2. تقليل الجودة (اختياري)
+//     final resized = img.copyResize(gray, width: 384);
+//
+//     // ✅ 3. ضغط JPG
+//     final jpg = img.encodeJpg(resized, quality: 60);
+//
+//     return Uint8List.fromList(jpg);
+//   }
+//   void _showSnackBar(BuildContext? context, String message) {
+//     if (context == null) return;
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text(message)),
+//     );
+//   }
+// //الجديده للتحسين
+//   Future<bool> printTicketFast(
+//       TicketPrintData data, {
+//         required BuildContext context,
+//       }) async {
+//     return await executePrintWithSelection(() async {
+//
+//       /// 🖼️ LOGO
+//       final logoBytes = await _networkImageToBytes(data.logoUrl);
+//       if (logoBytes != null) {
+//         await printImage(logoBytes);
+//       }
+//
+//       /// ⭐ VIP / NORMAL
+//       await printText(
+//         data.isVip ? "★ VIP Ticket ★" : "Regular Ticket",
+//         bold: true,
+//         align: TA.center,
+//         size: FS.large,
+//       );
+//
+//       /// 🎫 Ticket Number
+//       await printText(
+//         data.ticketNumber,
+//         align: TA.center,
+//         bold: true,
+//       );
+//
+//       await printer.printEmptyLine(callTimes: 1);
+//
+//       /// 🧾 INFO ROWS
+//       Future<void> row(String title, String value, {bool highlight = false}) async {
+//         if (value.isEmpty) return;
+//
+//         await printText(
+//           "$title: $value",
+//           bold: highlight,
+//         );
+//       }
+//
+//       await row("Date", data.date ?? "");
+//       await row("Time", data.time);
+//       await row("Location", data.location);
+//       await row("Gate", data.gate);
+//       await row("TID", data.tid);
+//       await row("SID", data.sid);
+//       await row("Plate", data.plateNumber);
+//       await row("KC", data.kc);
+//
+//       await row(
+//         "Payment",
+//         data.paymentStatus,
+//         highlight: !data.isPaid,
+//       );
+//
+//       await printer.printEmptyLine(callTimes: 1);
+//
+//       /// 🔳 QR
+//       final qrBytes = await generateQr(data.qrData);
+//       await printImage(qrBytes);
+//
+//       await printer.printEmptyLine(callTimes: 1);
+//
+//       /// 🖼️ Company Logo
+//       final companyLogo = await _networkImageToBytes(data.companyLogo);
+//       if (companyLogo != null) {
+//         await printImage(companyLogo);
+//       }
+//
+//       await printer.printEmptyLine(callTimes: 1);
+//
+//       /// 🇺🇸 English
+//       await printText(data.enTitle, bold: true, align: TA.center);
+//       await printText(data.enContent);
+//
+//       await printer.printEmptyLine(callTimes: 1);
+//
+//       /// 🇸🇦 Arabic (Image فقط)
+//       final arabicImage = await _textToImage(
+//         "${data.arTitle}\n${data.arContent}",
+//         isArabic: true,
+//       );
+//       await printImage(arabicImage);
+//
+//       await printer.printEmptyLine(callTimes: 1);
+//
+//       /// 📞 Contact
+//       await printText("FOR COMPLAINTS NO.: ${data.complaintsNo}");
+//       await printText("TEL: ${data.tel}");
+//       await printText("EMAIL: ${data.email}");
+//       await printText("P.O. BOX: ${data.poBox}");
+//
+//     }, context: context);
+//   }
+//   Future<Uint8List?> _networkImageToBytes(String url) async {
+//     try {
+//       final image = NetworkImage(url);
+//       final completer = Completer<ImageInfo>();
+//
+//       image.resolve(const ImageConfiguration()).addListener(
+//         ImageStreamListener((info, _) {
+//           completer.complete(info);
+//         }),
+//       );
+//
+//       final info = await completer.future;
+//       final byteData =
+//       await info.image.toByteData(format: ui.ImageByteFormat.rawRgba);
+//
+//       return byteData?.buffer.asUint8List();
+//     } catch (_) {
+//       return null;
+//     }
+//   }
+//   Future<Uint8List> _textToImage(
+//       String text, {
+//         bool isArabic = false,
+//       }) async {
+//     final recorder = ui.PictureRecorder();
+//     final canvas = Canvas(recorder);
+//
+//     final textPainter = TextPainter(
+//       text: TextSpan(
+//         text: text,
+//         style: const TextStyle(
+//           color: Colors.black,
+//           fontSize: 22,
+//         ),
+//       ),
+//       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
+//     );
+//
+//     textPainter.layout(maxWidth: 380);
+//     textPainter.paint(canvas, const Offset(0, 0));
+//
+//     final picture = recorder.endRecording();
+//     final img = await picture.toImage(
+//       textPainter.width.toInt(),
+//       textPainter.height.toInt(),
+//     );
+//
+//     final byteData = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
+//     return byteData!.buffer.asUint8List();
+//   }
+// }
+// .ازاي نطبع شاشه مش موجوده
+//
+//
+// final bytes = await printerService.renderWidgetToImage(
+// TicketPrintWidget(state: state),
+// );
+//
+// final result = await printerService.executePrintWithSelection(
+// () async {
+// await printerService.printImage(bytes);
+// },
+// context: context,
+// );
+//
+// if (result) {
+// receiptPrintedSuccessBottomSheet(context);
+// } else {
+// printingFailedBottomSheet(context);
+// }
+
+
+
+
+import 'dart:async';
+import 'dart:collection';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:easy_blue_printer/easy_blue_printer.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:image/image.dart' as img;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wvpemployeeapp/core/printer/ticket_print_widget.dart';
+
+class PrintService {
+  static final PrintService _instance = PrintService._internal();
+  factory PrintService() => _instance;
+  PrintService._internal();
+
+  final printer = EasyBluePrinter.instance;
+
+  List<BluetoothDevice> devices = [];
+  BluetoothDevice? _cachedDevice;
+  static const String savedPrinterKey = "saved_printer";
+
+  final Queue<Future<void> Function()> _printQueue = Queue();
+  bool _isPrinting = false;
+
+  // ==============================
+  // 🔐 Permissions
+  // ==============================
+  Future<bool> requestPermissions({BuildContext? context}) async {
+    final statuses = await [
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.location,
+    ].request();
+
+    return statuses.values.every((status) => status.isGranted);
+  }
+
+  // ==============================
+  // 💾 Save / Load Printer
+  // ==============================
+  Future<void> savePrinter(String address) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(savedPrinterKey, address);
+  }
+
+  Future<String?> getSavedPrinter() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(savedPrinterKey);
+  }
+
+  // ==============================
+  // 📡 Devices
+  // ==============================
+  Future<List<BluetoothDevice>> getDevices() async {
+    devices = await printer.getPairedDevices();
+    return devices;
+  }
+
+  // ==============================
+  // 🔌 Connect
+  // ==============================
+  Future<bool> connect(BluetoothDevice device) async {
+    await printer.disconnectFromDevice();
+    return await printer.connectToDevice(device);
+  }
+
+  // ==============================
+  // 🧠 Smart Connect
+  // ==============================
+  Future<bool> _smartConnect() async {
+    if (_cachedDevice != null) {
+      try {
+        if (await printer.isConnected()) return true;
+      } catch (_) {}
+    }
+
+    final savedAddress = await getSavedPrinter();
+    if (savedAddress != null) {
+      devices = await getDevices();
+      try {
+        final device = devices.firstWhere((d) => d.address == savedAddress);
+        bool connected = await connect(device);
+        if (connected) {
+          _cachedDevice = device;
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    return false;
+  }
+
+  // ==============================
+  // 🧠 Queue
+  // ==============================
+  Future<void> _enqueuePrint(Future<void> Function() task) async {
+    _printQueue.add(task);
+    if (_isPrinting) return;
+
+    _isPrinting = true;
+    while (_printQueue.isNotEmpty) {
+      final currentTask = _printQueue.removeFirst();
+      try {
+        await currentTask();
+      } catch (_) {}
+    }
+    _isPrinting = false;
+  }
+
+  // ==============================
+  // 🧠 Smart Print
+  // ==============================
+  Future<bool> _smartPrint(Future<void> Function() printFunction) async {
+    bool connected = await _smartConnect();
+    if (!connected) return false;
+
+    try {
+      await printFunction();
+      await printer.printEmptyLine(callTimes: 3);
+      return true;
+    } catch (_) {
+      _cachedDevice = null;
+      return false;
+    }
+  }
+
+  // ==============================
+  // 🧾 Print Text
+  // ==============================
+  Future<void> printText(
+      String text, {
+        bool bold = false,
+        TA align = TA.left,
+        FS size = FS.medium,
+        int copies = 1,
+      }) async {
+    await _enqueuePrint(() async {
+      for (int i = 0; i < copies; i++) {
+        await _smartPrint(() async {
+          await printer.printData(
+            data: text,
+            bold: bold,
+            textAlign: align,
+            fontSize: size,
+          );
+        });
+      }
+    });
+  }
+
+  // ==============================
+  // ⚡ Threshold Helper (بديل threshold المفقود)
+  // ==============================
+  Uint8List _applyThreshold(Uint8List rgbaBytes, int width, int height, {int threshold = 160}) {
+    final output = Uint8List(rgbaBytes.length);
+
+    for (int i = 0; i < rgbaBytes.length; i += 4) {
+      final r = rgbaBytes[i];
+      final g = rgbaBytes[i + 1];
+      final b = rgbaBytes[i + 2];
+
+      final gray = (0.299 * r + 0.587 * g + 0.114 * b).round();
+      final value = gray > threshold ? 255 : 0;
+
+      output[i] = value;
+      output[i + 1] = value;
+      output[i + 2] = value;
+      output[i + 3] = 255;
+    }
+
+    return output;
+  }
+
+  // ==============================
+  // 🖼️ Optimize Image
+  // ==============================
+  Future<Uint8List> _optimizeImage(Uint8List bytes) async {
+    try {
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return bytes;
+
+      final gray = img.grayscale(decoded);
+      final resized = img.copyResize(gray, width: 384);
+
+      return Uint8List.fromList(img.encodePng(resized));
+    } catch (_) {
+      return bytes;
+    }
+  }
+
+  // ==============================
+  // 🖼️ Print Image
+  // ==============================
+  Future<void> printImage(
+      Uint8List bytes, {
+        int copies = 1,
+      }) async {
+    await _enqueuePrint(() async {
+      final optimized = await _optimizeImage(bytes);
+
+      for (int i = 0; i < copies; i++) {
+        await _smartPrint(() async {
+          await printer.printImage(
+            bytes: optimized,
+            textAlign: TA.center,
+          );
+        });
+      }
+    });
+  }
+
+  // ==============================
+  // 🧾 QR
+  // ==============================
+  Future<Uint8List> generateQr(String data) async {
+    final qrPainter = QrPainter(
+      data: data,
+      version: QrVersions.auto,
+      gapless: true,
+    );
+    final image = await qrPainter.toImage(250);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    return byteData!.buffer.asUint8List();
+  }
+
+  // ==============================
+  // 🖼️ Print Widget
+  // ==============================
+  Future<bool> printWidget(
+      GlobalKey key, {
+        int copies = 1,
+      }) async {
+    final boundary =
+    key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return false;
+
+    final image = await boundary.toImage(pixelRatio: 1);
+    final byteData =
+    await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (byteData == null) return false;
+
+    final bytes = byteData.buffer.asUint8List();
+
+    // ⚡ optimize مرة واحدة فقط
+    final optimized = await _optimizeImage(bytes);
+
+    for (int i = 0; i < copies; i++) {
+      bool result = await _smartPrint(() async {
+        await printImage(optimized);
+      });
+      if (!result) return false;
+    }
+    return true;
+  }
+
+  Future<bool> executePrintWithSelection(
+      Future<void> Function() printFunction, {
+        required BuildContext context,
+      }) async {
+
+    final savedAddress = await getSavedPrinter();
+
+    if (savedAddress != null) {
+      devices = await getDevices();
+
+      try {
+        final device = devices.firstWhere((d) => d.address == savedAddress);
+
+        bool connected = await connect(device);
+        if (connected) {
+          _cachedDevice = device;
+
+          try {
+            await printFunction();
+            await printer.printEmptyLine(callTimes: 3);
+            _showSnackBar(context, "Printed using saved printer ✅");
+            return true;
+          } catch (_) {
+            _showSnackBar(context, "Print failed, retrying... ❌");
+          }
+        }
+      } catch (_) {}
+    }
+
+    devices = await getDevices();
+
+    if (devices.isEmpty) {
+      _showSnackBar(context, "No printers available ❌");
+      return false;
+    }
+
+    BluetoothDevice? selectedDevice = await showDialog<BluetoothDevice>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Select Printer'),
+          content: SizedBox(
+            width: 300,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: devices.length,
+              itemBuilder: (_, index) {
+                final d = devices[index];
+                return ListTile(
+                  leading: const Icon(Icons.print),
+                  title: Text(d.name),
+                  subtitle: Text(d.address),
+                  onTap: () => Navigator.pop(dialogContext, d),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selectedDevice == null) return false;
+
+    bool connected = await connect(selectedDevice);
+    if (!connected) return false;
+
+    _cachedDevice = selectedDevice;
+    await savePrinter(selectedDevice.address);
+
+    try {
+      await printFunction();
+      await printer.printEmptyLine(callTimes: 3);
+      _showSnackBar(context, "Print completed ✅");
+      return true;
+    } catch (_) {
+      _showSnackBar(context, "Print failed ❌");
+      return false;
+    }
+  }
+
+  Future<Uint8List> renderWidgetToImage(Widget widget) async {
+    final repaintBoundary = RenderRepaintBoundary();
+
+    final renderView = RenderView(
+      view: WidgetsBinding.instance.platformDispatcher.views.first,
+      child: RenderPositionedBox(
+        alignment: Alignment.topCenter,
+        child: repaintBoundary,
+      ),
+      configuration: const ViewConfiguration(
+        devicePixelRatio: 1.0,
+        physicalConstraints: BoxConstraints(maxWidth: 384, maxHeight: 1200),
+        logicalConstraints: BoxConstraints(maxWidth: 384, maxHeight: 1200),
+      ),
+    );
+
+    final pipelineOwner = PipelineOwner();
+    final buildOwner = BuildOwner(focusManager: FocusManager());
+
+    pipelineOwner.rootNode = renderView;
+    renderView.prepareInitialFrame();
+
+    final rootElement = RenderObjectToWidgetAdapter<RenderBox>(
+      container: repaintBoundary,
+      child: ColoredBox(color: const Color(0xFFFFFFFF), child: widget),
+    ).attachToRenderTree(buildOwner);
+
+    buildOwner.buildScope(rootElement);
+    buildOwner.finalizeTree();
+
+    pipelineOwner.flushLayout();
+    pipelineOwner.flushCompositingBits();
+    pipelineOwner.flushPaint();
+
+    final uiImage = await repaintBoundary.toImage(pixelRatio: 1.0);
+
+    final byteData =
+    await uiImage.toByteData(format: ui.ImageByteFormat.rawRgba);
+
+    final rawBytes = byteData!.buffer.asUint8List();
+
+    // ⚡ threshold + resize أسرع
+    final thresholded = _applyThreshold(
+      rawBytes,
+      uiImage.width,
+      uiImage.height,
+    );
+
+    final decoded = img.Image.fromBytes(
+      width: uiImage.width,
+      height: uiImage.height,
+      bytes: thresholded.buffer,
+      order: img.ChannelOrder.rgba,
+    );
+
+    final resized = img.copyResize(decoded, width: 384);
+
+    final output = img.encodePng(resized);
+
+    return Uint8List.fromList(output);
+  }
+
+  void _showSnackBar(BuildContext? context, String message) {
+    if (context == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+// باقي الكود (printTicketFast / helpers) بدون تغيير
+// ...
+}
